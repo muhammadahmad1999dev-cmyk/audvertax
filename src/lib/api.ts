@@ -1,37 +1,75 @@
 import { getApiBaseUrl } from "@/lib/api-config";
 
 const API_URL = getApiBaseUrl();
+const API_LOADING_EVENT = "audvertax-api-loading";
+
+type WindowWithApiLoader = Window & {
+  __audvertaxApiLoadingCount?: number;
+};
+
+function updateGlobalApiLoading(count: number) {
+  if (typeof window === "undefined") return;
+
+  const targetWindow = window as WindowWithApiLoader;
+  targetWindow.dispatchEvent(
+    new CustomEvent(API_LOADING_EVENT, {
+      detail: { count },
+    }),
+  );
+}
+
+async function withGlobalApiLoading<T>(request: () => Promise<T>): Promise<T> {
+  if (typeof window === "undefined") {
+    return request();
+  }
+
+  const targetWindow = window as WindowWithApiLoader;
+  const currentCount = targetWindow.__audvertaxApiLoadingCount ?? 0;
+  const nextCount = currentCount + 1;
+  targetWindow.__audvertaxApiLoadingCount = nextCount;
+  updateGlobalApiLoading(nextCount);
+
+  try {
+    return await request();
+  } finally {
+    const remainingCount = Math.max(0, (targetWindow.__audvertaxApiLoadingCount ?? 1) - 1);
+    targetWindow.__audvertaxApiLoadingCount = remainingCount;
+    updateGlobalApiLoading(remainingCount);
+  }
+}
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    cache: "no-store",
-    credentials: "include",
-    headers:
-      options.body instanceof FormData
-        ? options.headers
-        : { "Content-Type": "application/json", ...(options.headers ?? {}) },
+  return withGlobalApiLoading(async () => {
+    const response = await fetch(`${API_URL}${path}`, {
+      ...options,
+      cache: "no-store",
+      credentials: "include",
+      headers:
+        options.body instanceof FormData
+          ? options.headers
+          : { "Content-Type": "application/json", ...(options.headers ?? {}) },
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const apiError = data?.error;
+      const message =
+        typeof apiError?.message === "string"
+          ? apiError.message
+          : response.status >= 500
+            ? "The server could not complete this request. Please try again in a moment."
+            : "The request could not be completed.";
+      const error = new Error(message) as Error & {
+        code?: string;
+        status?: number;
+        details?: unknown;
+      };
+      error.code = typeof apiError?.code === "string" ? apiError.code : undefined;
+      error.status = response.status;
+      error.details = apiError?.details;
+      throw error;
+    }
+    return data as T;
   });
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    const apiError = data?.error;
-    const message =
-      typeof apiError?.message === "string"
-        ? apiError.message
-        : response.status >= 500
-          ? "The server could not complete this request. Please try again in a moment."
-          : "The request could not be completed.";
-    const error = new Error(message) as Error & {
-      code?: string;
-      status?: number;
-      details?: unknown;
-    };
-    error.code = typeof apiError?.code === "string" ? apiError.code : undefined;
-    error.status = response.status;
-    error.details = apiError?.details;
-    throw error;
-  }
-  return data as T;
 }
 
 export type AuthUser = {
@@ -376,6 +414,25 @@ export async function deleteStaffDocument(applicationId: string, documentIdentif
     `/api/v1/staff/applications/${encodeURIComponent(applicationId)}/documents/${encodeURIComponent(documentIdentifier)}`,
     { method: "DELETE" },
   );
+}
+
+export function getDocumentDownloadUrl(document: { url?: string | null; path?: string }) {
+  const source = document.url ?? document.path;
+  if (!source) return "#";
+
+  try {
+    return new URL(source).toString();
+  } catch {
+    return `${API_URL}/${source.replace(/^\/+/, "")}`;
+  }
+}
+
+export function getAdminDocumentDownloadUrl(applicationId: string, documentIdentifier: string) {
+  return `${API_URL}/api/v1/admin/applications/${encodeURIComponent(applicationId)}/documents/${encodeURIComponent(documentIdentifier)}`;
+}
+
+export function getStaffDocumentDownloadUrl(applicationId: string, documentIdentifier: string) {
+  return `${API_URL}/api/v1/staff/applications/${encodeURIComponent(applicationId)}/documents/${encodeURIComponent(documentIdentifier)}`;
 }
 
 export async function updateAdminApplicationStatus(

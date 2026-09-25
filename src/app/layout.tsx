@@ -5,6 +5,7 @@ import { Inter, Unbounded, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "../styles/page-coherence.css";
 import GlobalCursorGlow from "@/components/GlobalCursorGlow";
+import GlobalToast from "@/components/GlobalToast";
 import WhatsAppWidget from "@/components/WhatsAppWidget";
 import Preloader from "@/components/Preloader";
 import SiteChrome from "@/components/SiteChrome";
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AuthProvider>
           <ApplicationStateProvider>
             <Preloader />
+            <GlobalToast />
             <GlobalCursorGlow />
             <Suspense fallback={<>{children}</>}>{<SiteChrome>{children}</SiteChrome>}</Suspense>
             {/* <WhatsAppWidget /> */}

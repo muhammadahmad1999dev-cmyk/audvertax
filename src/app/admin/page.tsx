@@ -20,6 +20,7 @@ import {
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
   deleteAdminDocument,
+  getAdminDocumentDownloadUrl,
   getAdminApplication,
   getAdminApplications,
   getAdminUsers,
@@ -36,6 +37,7 @@ import {
   AdminUsersView,
   StaffManagementView,
 } from "@/components/admin/AdminOperations";
+import { confirmToast, showToast } from "@/lib/toast";
 
 const adminStatuses = ["submitted", "processing", "completed", "cancelled"] as const;
 const paymentStatuses = ["pending", "paid", "refunded"] as const;
@@ -200,7 +202,7 @@ function DocumentCard({ title, documents, onRemoveDocument, applicationId }: { t
             return (
               <div key={`${document.path ?? document.url ?? "document"}-${index}`} className="flex items-center justify-between gap-2 rounded-fm-lg border border-fm-border-soft bg-fm-surface-raised px-3 py-2.5 transition hover:border-fm-lime hover:bg-fm-surface">
                 <a
-                  href={document.url ?? document.path ?? "#"}
+                  href={getAdminDocumentDownloadUrl(applicationId, document.id ?? document.path ?? document.name ?? document.documentName ?? "")}
                   download={document.name ?? document.documentName ?? true}
                   target="_blank"
                   rel="noreferrer"
@@ -582,19 +584,19 @@ export default function AdminPage() {
     setUploadingDocument(true);
     setError("");
     try {
-      const response = await uploadAdminDocument(selected.application.id, file);
-      const uploadedDocument: ApplicationDocument = {
-        ...response.data,
-        documentName: file.name,
-        name: file.name,
-        uploadedByRole: "admin",
-        category: "admin",
-        source: "Admin upload",
-        uploadedBy: "admin",
-      };
+      await uploadAdminDocument(selected.application.id, file);
+      const response = await getAdminApplication(selected.application.id);
+      const roleDocuments = buildRoleDocumentGroups(response.data.application).flatMap((group) => group.documents);
+      const mergedDocuments = Array.from(
+        [...response.data.signedDocuments, ...roleDocuments].reduce((documents, document) => {
+          const key = document.path ?? document.id ?? document.documentName ?? document.name ?? `document-${documents.size}`;
+          documents.set(key, { ...(documents.get(key) ?? {}), ...document });
+          return documents;
+        }, new Map<string, ApplicationDocument>()).values(),
+      );
       setSelected({
-        ...selected,
-        signedDocuments: [...selected.signedDocuments, uploadedDocument],
+        ...response.data,
+        signedDocuments: mergedDocuments,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to upload document.");
@@ -614,7 +616,13 @@ export default function AdminPage() {
       return;
     }
 
-    const confirmed = window.confirm(`Remove "${displayName}" from this application?`);
+    const confirmed = await confirmToast({
+      title: `Remove "${displayName}"?`,
+      description: "This document will be deleted from the application.",
+      confirmText: "Remove document",
+      cancelText: "Keep it",
+      variant: "danger",
+    });
     if (!confirmed) return;
 
     try {
@@ -635,6 +643,12 @@ export default function AdminPage() {
           documents: (selected.application.documents ?? {}) as Record<string, unknown>,
         },
         signedDocuments: filteredSignedDocuments,
+      });
+
+      showToast({
+        title: "Document removed",
+        description: `${displayName} was removed from the application.`,
+        variant: "success",
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove document.");

@@ -10,6 +10,7 @@ import { getServiceBySlug, getApplicationConfig } from "@/lib/services";
 import { calculateApplicationPricing } from "@/lib/pricing";
 import { getBilling, type BillingOrder } from "@/lib/api";
 import { isCustomerApplicationEditable } from "@/lib/services/application-lifecycle";
+import type { ApplicationDocument } from "@/components/application/ApplicationStateProvider";
 
 const statusLabels = {
   draft: "Draft",
@@ -98,6 +99,19 @@ function DashboardApplicationPageContent() {
   const displayCurrency =
     billingOrder?.status === "paid" ? billingOrder.currency : pricing.currency;
   const documents = requestedApplication.documents ?? [];
+  const documentGroups = [
+    { key: "owner", title: "Owner documents" },
+    { key: "member", title: "Member documents" },
+    { key: "staff", title: "Company documents" },
+    { key: "admin", title: "Admin documents" },
+    { key: "customer", title: "Customer documents" },
+  ].map((group) => ({
+    ...group,
+    documents: documents.filter((document) => {
+      const role = (document.role ?? document.category ?? document.uploadedByRole ?? "customer").toLowerCase();
+      return role.includes(group.key);
+    }),
+  })).filter((group) => group.documents.length);
   const isUkDirectorVerification =
     requestedApplication.serviceSlug === "uk-director-id-verification";
   const isPostOrder = ["paid", "processing", "completed"].includes(requestedApplication.status);
@@ -279,28 +293,37 @@ function DashboardApplicationPageContent() {
                   No documents have been uploaded yet.
                 </p>
               ) : (
-                <div className="mt-4 space-y-2">
-                  {documents.map((document) => (
-                    <div
-                      key={document.id}
-                      className="flex items-center justify-between gap-3 rounded-[var(--fm-radius-md)] bg-[var(--fm-surface-raised)] p-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-[var(--fm-text-primary)]">
-                          {document.fileName}
-                        </p>
-                        <p className="mt-1 text-xs text-[var(--fm-text-tertiary)]">
-                          {document.documentType} · {document.status}
-                        </p>
+                <div className="mt-4 space-y-5">
+                  {documentGroups.map((group) => (
+                    <section key={group.key}>
+                      <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--fm-text-tertiary)]">
+                        {group.title}
+                      </p>
+                      <div className="space-y-2">
+                        {group.documents.map((document: ApplicationDocument) => (
+                          <div
+                            key={document.id}
+                            className="flex items-center justify-between gap-3 rounded-[var(--fm-radius-md)] bg-[var(--fm-surface-raised)] p-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-[var(--fm-text-primary)]">
+                                {document.fileName}
+                              </p>
+                              <p className="mt-1 text-xs text-[var(--fm-text-tertiary)]">
+                                {document.documentType} · {document.status}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => undefined}
+                              className="rounded-[var(--fm-radius-pill)] border border-[var(--fm-border)] px-3 py-2 text-xs font-medium text-[var(--fm-text-primary)] transition-colors hover:bg-[var(--fm-surface-raised)]"
+                            >
+                              Download
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => undefined}
-                        className="rounded-[var(--fm-radius-pill)] border border-[var(--fm-border)] px-3 py-2 text-xs font-medium text-[var(--fm-text-primary)] transition-colors hover:bg-[var(--fm-surface-raised)]"
-                      >
-                        Download
-                      </button>
-                    </div>
+                    </section>
                   ))}
                 </div>
               )}

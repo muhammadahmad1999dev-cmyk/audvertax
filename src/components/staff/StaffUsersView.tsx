@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Download, Upload, Users } from "lucide-react";
 import {
   deleteStaffDocument,
+  getStaffDocumentDownloadUrl,
   getStaffApplication,
   getStaffApplications,
   getStaffUsers,
@@ -14,6 +15,7 @@ import {
   type AdminUserRecord,
   type ApplicationDocument,
 } from "@/lib/api";
+import { confirmToast, showToast } from "@/lib/toast";
 
 function formatDate(value?: string) {
   return value
@@ -211,7 +213,7 @@ function removeDocumentFromTree(value: unknown, target: ApplicationDocument): un
   return nextRecord;
 }
 
-function DocumentCard({ title, documents, onRemoveDocument, applicationId }: { title: string; documents: ApplicationDocument[]; applicationId: string; onRemoveDocument?: (applicationId: string, document: ApplicationDocument) => void }) {
+function DocumentCard({ title, documents, applicationId, onRemoveDocument }: { title: string; documents: ApplicationDocument[]; applicationId: string; onRemoveDocument?: (applicationId: string, document: ApplicationDocument) => void }) {
   return (
     <section className="rounded-fm-xl border border-fm-border-soft bg-fm-surface p-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)] md:p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -230,7 +232,7 @@ function DocumentCard({ title, documents, onRemoveDocument, applicationId }: { t
             return (
               <div key={`${document.path ?? document.url ?? "document"}-${index}`} className="flex items-center justify-between gap-2 rounded-fm-lg border border-fm-border-soft bg-fm-surface-raised px-3 py-2.5 transition hover:border-fm-lime hover:bg-fm-surface">
                 <a
-                  href={document.url ?? document.path ?? "#"}
+                  href={getStaffDocumentDownloadUrl(applicationId, document.id ?? document.path ?? document.name ?? document.documentName ?? "")}
                   download={document.name ?? document.documentName ?? true}
                   target="_blank"
                   rel="noreferrer"
@@ -287,9 +289,19 @@ export function StaffUsersView() {
     setUploading(applicationId);
     setError("");
     try {
-      const response = await uploadStaffDocument(applicationId, file);
+      await uploadStaffDocument(applicationId, file);
+      const response = await getStaffApplication(applicationId);
+      const detail = response.data as AdminApplicationDetail;
+      const roleDocuments = buildRoleDocumentGroups(detail.application).flatMap((group) => group.documents);
+      const mergedDocuments = Array.from(
+        [...detail.signedDocuments, ...roleDocuments].reduce((documents, document) => {
+          const key = document.path ?? document.id ?? document.documentName ?? document.name ?? `document-${documents.size}`;
+          documents.set(key, { ...(documents.get(key) ?? {}), ...document });
+          return documents;
+        }, new Map<string, ApplicationDocument>()).values(),
+      );
       setApplications((current) => current.map((item) => item.application.id === applicationId
-        ? { ...item, signedDocuments: [...item.signedDocuments, { ...response.data, documentName: file.name, uploadedByRole: "staff", source: "Staff upload", uploadedBy: "staff" }] }
+        ? { ...item, application: detail.application, signedDocuments: mergedDocuments }
         : item));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to upload document.");
@@ -347,7 +359,13 @@ export function StaffUsersView() {
       return;
     }
 
-    const confirmed = window.confirm(`Remove "${displayName}" from this application?`);
+    const confirmed = await confirmToast({
+      title: `Remove "${displayName}"?`,
+      description: "This document will be deleted from the application.",
+      confirmText: "Remove document",
+      cancelText: "Keep it",
+      variant: "danger",
+    });
     if (!confirmed) return;
 
     setError("");
@@ -370,6 +388,12 @@ export function StaffUsersView() {
           signedDocuments: filteredSignedDocuments,
         };
       }));
+
+      showToast({
+        title: "Document removed",
+        description: `${displayName} was removed from the application.`,
+        variant: "success",
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove staff document.");
     }

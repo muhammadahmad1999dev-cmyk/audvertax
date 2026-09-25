@@ -12,6 +12,7 @@ import { ApplicationCard } from "@/components/ui/composite";
 import { EmptyState, SectionHeader } from "@/components/ui/interaction-controls";
 import { buttonVariants } from "@/components/ui/button";
 import { deleteApplication } from "@/lib/api";
+import { confirmToast, showToast } from "@/lib/toast";
 
 function getStatusTone(
   status: ApplicationStatus,
@@ -71,13 +72,24 @@ export default function MyApplications() {
           const status = application.status;
           const canCancel = status === "submitted" || status === "ready_for_payment";
           async function cancelApplication() {
-            if (
-              !window.confirm(
-                "Cancel this application? Its application data, documents and pending billing will be removed.",
-              )
-            )
+            const confirmed = await confirmToast({
+              title: "Cancel this application?",
+              description: "Its application data, documents and pending billing will be removed.",
+              confirmText: "Cancel application",
+              cancelText: "Keep it",
+              variant: "danger",
+            });
+
+            if (!confirmed) {
               return;
+            }
+
             await deleteApplication(application.id);
+            showToast({
+              title: "Application cancelled",
+              description: "Your application has been removed successfully.",
+              variant: "success",
+            });
             window.location.reload();
           }
           return (

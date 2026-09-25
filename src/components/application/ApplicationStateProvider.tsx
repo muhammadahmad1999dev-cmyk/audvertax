@@ -41,6 +41,9 @@ export type ApplicationDocument = {
   fileName?: string;
   documentId?: string;
   ownerId?: string;
+  role?: string;
+  category?: string;
+  uploadedByRole?: string;
 };
 
 export type ApplicationState = {
@@ -101,18 +104,70 @@ function writeStoredApplications(applications: ApplicationState[]) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(applications));
 }
 
+function documentRole(key: string) {
+  const normalized = key.toLowerCase();
+  if (normalized.includes("owner")) return "owner";
+  if (normalized.includes("member")) return "member";
+  if (normalized.includes("staff")) return "staff";
+  if (normalized.includes("admin")) return "admin";
+  if (normalized.includes("customer")) return "customer";
+  return undefined;
+}
+
+function collectBackendDocuments(value: unknown, inheritedRole?: string): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectBackendDocuments(item, inheritedRole));
+  }
+
+  if (!value || typeof value !== "object") return [];
+
+  const document = value as Record<string, unknown>;
+  const isDocument = [
+    document.id,
+    document.documentId,
+    document.fileName,
+    document.documentName,
+    document.name,
+    document.path,
+  ].some((field) => typeof field === "string" && field.length > 0);
+
+  return isDocument
+    ? [{ ...document, __role: inheritedRole }]
+    : Object.entries(document).flatMap(([key, child]) =>
+        collectBackendDocuments(child, documentRole(key) ?? inheritedRole),
+      );
+}
+
 function normalizeBackendApplication(record: ApplicationRecord): ApplicationState {
   const data = record.data ?? {};
   const rawDocuments = record.documents;
   const rawMembers = data.members;
 
-  const documents = Array.isArray(rawDocuments)
-    ? rawDocuments
-    : rawDocuments && typeof rawDocuments === "object"
-      ? Object.values(rawDocuments).filter(
-          (document): document is ApplicationDocument => !!document && typeof document === "object",
-        )
-      : [];
+  const rawDocumentList = collectBackendDocuments(rawDocuments);
+
+  const documents = rawDocumentList
+    .map((document) => {
+      const path = typeof document.path === "string" ? document.path : undefined;
+      const fileName = typeof document.fileName === "string"
+        ? document.fileName
+        : typeof document.documentName === "string"
+          ? document.documentName
+          : typeof document.name === "string"
+            ? document.name
+            : path?.split("/").pop() ?? "Uploaded document";
+
+      return {
+        id: typeof document.id === "string" ? document.id : path ?? fileName,
+        documentId: typeof document.documentId === "string" ? document.documentId : typeof document.id === "string" ? document.id : path,
+        documentType: typeof document.documentType === "string" ? document.documentType : typeof document.type === "string" ? document.type : "Document",
+        status: typeof document.status === "string" ? document.status : "uploaded",
+        fileName,
+        ownerId: typeof document.ownerId === "string" ? document.ownerId : undefined,
+        role: typeof document.role === "string" ? document.role : typeof document.__role === "string" ? document.__role : undefined,
+        category: typeof document.category === "string" ? document.category : undefined,
+        uploadedByRole: typeof document.uploadedByRole === "string" ? document.uploadedByRole : undefined,
+      } satisfies ApplicationDocument;
+    });
 
   const members = Array.isArray(rawMembers) ? rawMembers : [];
 

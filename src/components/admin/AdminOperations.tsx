@@ -18,6 +18,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import {
   createAdminStaff,
   deleteAdminDocument,
+  getAdminDocumentDownloadUrl,
   getAdminApplications,
   getAdminApplication,
   getAdminStaff,
@@ -33,6 +34,7 @@ import {
   type AdminStaffRecord,
   type AdminUserRecord,
 } from "@/lib/api";
+import { confirmToast, showToast } from "@/lib/toast";
 
 function formatDate(value?: string) {
   return value ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(value)) : "Never";
@@ -179,7 +181,21 @@ function matchesDocument(target: ApplicationDocument, candidate: unknown) {
   );
 }
 
-function DocumentCard({ title, documents, onRemoveDocument }: { title: string; documents: ApplicationDocument[]; onRemoveDocument?: (document: ApplicationDocument) => void }) {
+function removeDocumentFromTree(value: unknown, target: ApplicationDocument): unknown {
+  if (Array.isArray(value)) {
+    return value.filter((item) => !matchesDocument(target, item)).map((item) => removeDocumentFromTree(item, target));
+  }
+
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => !matchesDocument(target, item))
+      .map(([key, item]) => [key, removeDocumentFromTree(item, target)]),
+  );
+}
+
+function DocumentCard({ title, documents, applicationId, onRemoveDocument }: { title: string; documents: ApplicationDocument[]; applicationId: string; onRemoveDocument?: (document: ApplicationDocument) => void }) {
   return (
     <section className="rounded-fm-xl border border-fm-border-soft bg-fm-surface p-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)] md:p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -196,7 +212,7 @@ function DocumentCard({ title, documents, onRemoveDocument }: { title: string; d
             return (
               <div key={`${document.path ?? document.id ?? document.url ?? "document"}-${index}`} className="flex items-center justify-between gap-2 rounded-fm-lg border border-fm-border-soft bg-fm-surface-raised px-3 py-2.5 transition hover:border-fm-lime hover:bg-fm-surface">
                 <a
-                  href={document.url ?? document.path ?? "#"}
+                  href={getAdminDocumentDownloadUrl(applicationId, document.id ?? document.path ?? document.name ?? document.documentName ?? "")}
                   download={document.name ?? document.documentName ?? true}
                   target="_blank"
                   rel="noreferrer"
@@ -402,13 +418,19 @@ export function AdminUsersView() {
     setUploadingApplication(applicationId);
     setError("");
     try {
-      const response = await uploadAdminDocument(applicationId, file, file.name);
+      await uploadAdminDocument(applicationId, file, file.name);
+      const response = await getAdminApplication(applicationId);
+      const roleDocuments = buildRoleDocumentGroups(response.data.application).flatMap((group) => group.documents);
+      const mergedDocuments = Array.from(
+        [...response.data.signedDocuments, ...roleDocuments].reduce((documentMap, document) => {
+          const key = document.path ?? document.id ?? document.documentName ?? document.name ?? `document-${documentMap.size}`;
+          documentMap.set(key, { ...(documentMap.get(key) ?? {}), ...document });
+          return documentMap;
+        }, new Map<string, ApplicationDocument>()).values(),
+      );
       setApplicationDocuments((current) => ({
         ...current,
-        [applicationId]: [
-          ...(current[applicationId] ?? []),
-          response.data,
-        ],
+        [applicationId]: mergedDocuments,
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to upload document.");
@@ -455,7 +477,13 @@ export function AdminUsersView() {
       return;
     }
 
-    const confirmed = window.confirm(`Remove "${displayName}" from this application?`);
+    const confirmed = await confirmToast({
+      title: `Remove "${displayName}"?`,
+      description: "This document will be deleted from the application.",
+      confirmText: "Remove document",
+      cancelText: "Keep it",
+      variant: "danger",
+    });
     if (!confirmed) return;
 
     try {
@@ -464,6 +492,20 @@ export function AdminUsersView() {
         ...current,
         [applicationId]: (current[applicationId] ?? []).filter((item) => !matchesDocument(document, item)),
       }));
+      setApplications((current) => current.map((application) =>
+        application.id === applicationId
+          ? {
+              ...application,
+              documents: removeDocumentFromTree(application.documents, document) as Record<string, unknown>,
+            }
+          : application,
+      ));
+
+      showToast({
+        title: "Document removed",
+        description: `${displayName} was removed from the application.`,
+        variant: "success",
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove document.");
     }
@@ -660,6 +702,7 @@ export function AdminUsersView() {
                                   key={group.key}
                                   title={group.title}
                                   documents={group.documents}
+                                  applicationId={application.id}
                                   onRemoveDocument={(document) => void removeApplicationDocument(application.id, document)}
                                 />
                               ));
@@ -748,12 +791,25 @@ export function StaffManagementView() {
 
   async function removeStaff(staffMember: AdminStaffRecord) {
     if (removingId) return;
-    if (!window.confirm(`Remove ${staffMember.email} from staff?`)) return;
+    const confirmed = await confirmToast({
+      title: `Remove ${staffMember.email}?`,
+      description: "This employee will no longer have staff access.",
+      confirmText: "Remove employee",
+      cancelText: "Keep access",
+      variant: "danger",
+    });
+
+    if (!confirmed) return;
     setRemovingId(staffMember.id);
     setError("");
     try {
       await removeAdminStaff(staffMember.id);
       await loadStaff(false);
+      showToast({
+        title: "Employee removed",
+        description: `${staffMember.email} has been removed from staff.`,
+        variant: "success",
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove staff account.");
     } finally {
