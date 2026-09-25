@@ -17,6 +17,7 @@ import {
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
   createAdminStaff,
+  deleteAdminDocument,
   getAdminApplications,
   getAdminApplication,
   getAdminStaff,
@@ -72,6 +73,157 @@ function readableKey(key: string) {
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function normalizeDocumentRole(key: string): "owner" | "member" | "staff" | "admin" | "customer" | null {
+  const normalizedKey = key.toLowerCase();
+
+  if (normalizedKey.includes("owner")) return "owner";
+  if (normalizedKey.includes("member") || normalizedKey === "members") return "member";
+  if (normalizedKey.includes("staff") || normalizedKey === "staffuploads") return "staff";
+  if (normalizedKey.includes("admin")) return "admin";
+  if (normalizedKey.includes("customer")) return "customer";
+
+  return null;
+}
+
+function flattenRoleDocuments(value: unknown, role: "owner" | "member" | "staff" | "admin" | "customer"): ApplicationDocument[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => flattenRoleDocuments(item, role));
+  }
+
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const item = value as Record<string, unknown>;
+  const isFileLike = typeof item.path === "string" && (typeof item.id === "string" || typeof item.name === "string" || typeof item.type === "string");
+
+  if (isFileLike) {
+    return [{
+      id: typeof item.id === "string" ? item.id : undefined,
+      path: typeof item.path === "string" ? item.path : undefined,
+      url: typeof item.url === "string" ? item.url : null,
+      name: typeof item.name === "string" ? item.name : undefined,
+      documentName: typeof item.documentName === "string" ? item.documentName : typeof item.name === "string" ? item.name : undefined,
+      size: typeof item.size === "number" ? item.size : undefined,
+      type: typeof item.type === "string" ? item.type : undefined,
+      uploadedAt: typeof item.uploadedAt === "string" ? item.uploadedAt : undefined,
+      uploadedBy: typeof item.uploadedByName === "string" ? item.uploadedByName : undefined,
+      uploadedByRole: typeof item.uploadedByRole === "string" ? item.uploadedByRole : role,
+      category: role,
+    }];
+  }
+
+  return Object.entries(item).flatMap(([key, child]) => {
+    const nextRole = normalizeDocumentRole(key) ?? role;
+    return flattenRoleDocuments(child, nextRole);
+  });
+}
+
+function buildRoleDocumentGroups(application: Partial<AdminApplicationRecord> | Partial<AdminApplicationDetail["application"]>) {
+  const root =
+    (application as { documents?: Record<string, unknown> }).documents ??
+    (application as { data?: { documents?: Record<string, unknown> } }).data?.documents ??
+    {};
+
+  const groups: Array<{ key: string; title: string; documents: ApplicationDocument[] }> = [];
+
+  Object.entries(root).forEach(([key, value]) => {
+    const role = normalizeDocumentRole(key) ?? "customer";
+
+    if (role === "member") {
+      if (Array.isArray(value)) {
+        value.forEach((member, index) => {
+          const documents = flattenRoleDocuments(member, "member");
+          if (documents.length) {
+            groups.push({ key: `member-${index + 1}`, title: `Member ${index + 1} documents`, documents });
+          }
+        });
+        return;
+      }
+
+      const documents = flattenRoleDocuments(value, "member");
+      if (documents.length) {
+        groups.push({ key: "member-documents", title: "Member documents", documents });
+      }
+      return;
+    }
+
+    const documents = flattenRoleDocuments(value, role);
+    if (documents.length) {
+      const title = role.charAt(0).toUpperCase() + role.slice(1) + " documents";
+      groups.push({ key: role, title, documents });
+    }
+  });
+
+  return groups;
+}
+
+function matchesDocument(target: ApplicationDocument, candidate: unknown) {
+  if (!candidate || typeof candidate !== "object") return false;
+
+  const document = candidate as Record<string, unknown>;
+  const targetPath = typeof target.path === "string" ? target.path : "";
+  const targetId = typeof target.id === "string" ? target.id : "";
+  const targetName = typeof target.name === "string" ? target.name : typeof target.documentName === "string" ? target.documentName : "";
+
+  const candidatePath = typeof document.path === "string" ? document.path : "";
+  const candidateId = typeof document.id === "string" ? document.id : "";
+  const candidateName = typeof document.name === "string" ? document.name : typeof document.documentName === "string" ? document.documentName : "";
+
+  return Boolean(
+    (targetPath && candidatePath && targetPath === candidatePath)
+      || (targetId && candidateId && targetId === candidateId)
+      || (targetName && candidateName && targetName === candidateName),
+  );
+}
+
+function DocumentCard({ title, documents, onRemoveDocument }: { title: string; documents: ApplicationDocument[]; onRemoveDocument?: (document: ApplicationDocument) => void }) {
+  return (
+    <section className="rounded-fm-xl border border-fm-border-soft bg-fm-surface p-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)] md:p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fm-text-primary">{title}</p>
+        <span className="rounded-full border border-fm-border-soft bg-fm-surface-raised px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-fm-text-secondary">
+          {documents.length} file{documents.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      {documents.length ? (
+        <div className="space-y-2">
+          {documents.map((document, index) => {
+            const name = document.documentName ?? document.name ?? document.path?.split("/").pop() ?? "Uploaded document";
+            return (
+              <div key={`${document.path ?? document.id ?? document.url ?? "document"}-${index}`} className="flex items-center justify-between gap-2 rounded-fm-lg border border-fm-border-soft bg-fm-surface-raised px-3 py-2.5 transition hover:border-fm-lime hover:bg-fm-surface">
+                <a
+                  href={document.url ?? document.path ?? "#"}
+                  download={document.name ?? document.documentName ?? true}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 text-sm text-fm-text-primary"
+                >
+                  <span className="min-w-0 flex-1 break-all text-[13px] leading-snug font-medium">{name}</span>
+                  <Download size={16} className="shrink-0 text-fm-text-secondary" />
+                </a>
+
+                {onRemoveDocument && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveDocument(document)}
+                    className="shrink-0 rounded-fm-md border border-fm-danger/30 bg-fm-danger/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-danger transition hover:bg-fm-danger/10"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-xs text-fm-text-secondary">No documents uploaded.</p>
+      )}
+    </section>
+  );
 }
 
 const applicationStatuses = ["submitted", "processing", "completed", "cancelled"] as const;
@@ -275,14 +427,45 @@ export function AdminUsersView() {
     setLoadingDocuments(applicationId);
     try {
       const response = await getAdminApplication(applicationId);
+      const roleDocuments = buildRoleDocumentGroups(response.data.application).flatMap((group) => group.documents);
+      const mergedDocuments = Array.from(
+        [...response.data.signedDocuments, ...roleDocuments].reduce((documentMap, document) => {
+          const key = document.path ?? document.id ?? document.documentName ?? document.name ?? `document-${documentMap.size}`;
+          documentMap.set(key, { ...(documentMap.get(key) ?? {}), ...document });
+          return documentMap;
+        }, new Map<string, ApplicationDocument>()).values(),
+      );
       setApplicationDocuments((current) => ({
         ...current,
-        [applicationId]: response.data.signedDocuments,
+        [applicationId]: mergedDocuments,
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load uploaded documents.");
     } finally {
       setLoadingDocuments(null);
+    }
+  }
+
+  async function removeApplicationDocument(applicationId: string, document: ApplicationDocument) {
+    const documentIdentifier = document.id ?? document.path ?? document.name ?? document.documentName;
+    const displayName = document.documentName ?? document.name ?? document.path?.split("/").pop() ?? "this document";
+
+    if (!documentIdentifier) {
+      setError("This document cannot be removed because it has no identifier.");
+      return;
+    }
+
+    const confirmed = window.confirm(`Remove "${displayName}" from this application?`);
+    if (!confirmed) return;
+
+    try {
+      await deleteAdminDocument(applicationId, documentIdentifier);
+      setApplicationDocuments((current) => ({
+        ...current,
+        [applicationId]: (current[applicationId] ?? []).filter((item) => !matchesDocument(document, item)),
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to remove document.");
     }
   }
 
@@ -443,20 +626,44 @@ export function AdminUsersView() {
                         {loadingDocuments === application.id ? (
                           <p className="mb-3 text-xs text-fm-text-secondary">Loading documents...</p>
                         ) : applicationDocuments[application.id]?.length ? (
-                          <div className="mb-4 space-y-2">
-                            {applicationDocuments[application.id].map((document) => (
-                              <a
-                                key={document.path}
-                                href={document.url ?? "#"}
-                                download
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center justify-between rounded-fm-md border border-fm-border-soft px-3 py-2 text-xs text-fm-text-secondary hover:border-fm-lime hover:text-fm-lime"
-                              >
-                                <span className="truncate">{document.path?.split("/").pop() ?? "Uploaded document"}</span>
-                                <Download size={14} />
-                              </a>
-                            ))}
+                          <div className="mb-4 grid gap-3 lg:grid-cols-2">
+                            {(() => {
+                              const roleGroups = buildRoleDocumentGroups(application);
+                              const grouped = roleGroups.map((group) => ({
+                                ...group,
+                                documents: [
+                                  ...group.documents,
+                                  ...applicationDocuments[application.id].filter((document) => {
+                                    const category = (document.category ?? document.uploadedByRole ?? "customer").toLowerCase();
+                                    return category === group.key || category === group.title.toLowerCase().replace(" documents", "");
+                                  }),
+                                ].filter((document, index, list) => {
+                                  const key = document.path ?? document.id ?? document.documentName ?? document.name ?? `${index}`;
+                                  return list.findIndex((entry) => (entry.path ?? entry.id ?? entry.documentName ?? entry.name ?? `${index}`) === key) === index;
+                                }),
+                              }));
+
+                              const flattened = grouped.flatMap((group) => group.documents);
+                              const fallbackDocuments = applicationDocuments[application.id].filter(
+                                (document) => !flattened.some((entry) => {
+                                  const left = document.path ?? document.id ?? document.documentName ?? document.name ?? "";
+                                  const right = entry.path ?? entry.id ?? entry.documentName ?? entry.name ?? "";
+                                  return left && right && left === right;
+                                }),
+                              );
+
+                              return [
+                                ...grouped.filter((group) => group.documents.length),
+                                ...(fallbackDocuments.length ? [{ key: "uploaded", title: "Uploaded documents", documents: fallbackDocuments }] : []),
+                              ].map((group) => (
+                                <DocumentCard
+                                  key={group.key}
+                                  title={group.title}
+                                  documents={group.documents}
+                                  onRemoveDocument={(document) => void removeApplicationDocument(application.id, document)}
+                                />
+                              ));
+                            })()}
                           </div>
                         ) : (
                           <p className="mb-3 text-xs text-fm-text-secondary">No uploaded documents.</p>
