@@ -58,11 +58,11 @@ const servicesMenu: ServicesMenu = {
           icon: <FileText className="h-4 w-4" />,
           children: [
             { title: "Confirmation Statement", href: getServiceHref("uk-confirmation-statement") },
-            { title: "Accounts Preparation", href: getServiceHref("uk-accounts-preparation") },
-            {
-              title: "HMRC & Companies House Submission",
-              href: getServiceHref("uk-hmrc-companies-house-submission"),
-            },
+            // { title: "Accounts Preparation", href: getServiceHref("uk-accounts-preparation") },
+            // {
+            //   title: "HMRC & Companies House Submission",
+            //   href: getServiceHref("uk-hmrc-companies-house-submission"),
+            // },
           ],
         },
         {
@@ -71,33 +71,33 @@ const servicesMenu: ServicesMenu = {
           children: [
             { title: "VAT Registration", href: getServiceHref("uk-vat-registration") },
             { title: "VAT Filing", href: getServiceHref("uk-vat-filing") },
-            {
-              title: "Self Assessment Registration",
-              href: getServiceHref("uk-self-assessment-registration"),
-            },
-            { title: "Self Assessment Filing", href: getServiceHref("uk-self-assessment-filing") },
+            // {
+            //   title: "Self Assessment Registration",
+            //   href: getServiceHref("uk-self-assessment-registration"),
+            // },
+            // { title: "Self Assessment Filing", href: getServiceHref("uk-self-assessment-filing") },
             { title: "Corporate Tax", href: getServiceHref("uk-corporate-tax") },
-            { title: "PAYE Registration", href: getServiceHref("uk-payee-registration") },
-            { title: "Payroll Filing", href: getServiceHref("uk-payroll-filing") },
+            // { title: "PAYE Registration", href: getServiceHref("uk-payee-registration") },
+            // { title: "Payroll Filing", href: getServiceHref("uk-payroll-filing") },
           ],
         },
         {
           title: "LTD Company Matters",
           icon: <Buildings className="h-4 w-4" />,
           children: [
-            { title: "LTD Name", href: getServiceHref("uk-ltd-name") },
-            { title: "LTD Address Change", href: getServiceHref("uk-ltd-address-change") },
-            { title: "Add Director", href: getServiceHref("uk-add-director") },
-            {
-              title: "Change Director Address",
-              href: getServiceHref("uk-change-director-address"),
-            },
+            // { title: "LTD Name", href: getServiceHref("uk-ltd-name") },
+            // { title: "LTD Address Change", href: getServiceHref("uk-ltd-address-change") },
+            // { title: "Add Director", href: getServiceHref("uk-add-director") },
+            // {
+            //   title: "Change Director Address",
+            //   href: getServiceHref("uk-change-director-address"),
+            // },
             {
               title: "Director ID Verification",
               href: getServiceHref("uk-director-id-verification"),
             },
             { title: "UK Address", href: getServiceHref("uk-address") },
-            { title: "LTD Name Change", href: getServiceHref("uk-ltd-name-change") },
+            // { title: "LTD Name Change", href: getServiceHref("uk-ltd-name-change") },
           ],
         },
       ],
@@ -369,7 +369,7 @@ export default function NavBar() {
             id="services-navbar-dropdown"
             role="menu"
             aria-label="Services menu"
-            className="absolute inset-x-0 left-[50%] top-[calc(100%)] z-[120] mx-auto flex max-h-[calc(100vh-120px)] w-[min(1180px,calc(100vw-32px))] flex-col justify-center overflow-y-auto overflow-x-hidden rounded-[var(--fm-radius-feature)] border border-[var(--fm-border)] bg-[var(--fm-surface)] shadow-[var(--fm-shadow-elevated)] backdrop-blur-xl overscroll-contain animate-[megaMenuCurtainDrop_320ms_var(--fm-motion-ease)_both]"
+            className="absolute inset-x-0 left-[50%] top-[calc(100%+9px)] z-[120] mx-auto flex max-h-[calc(100vh-120px)] w-[min(1180px,calc(100vw-32px))] flex-col justify-center overflow-y-auto overflow-x-hidden rounded-[var(--fm-radius-feature)] border border-[var(--fm-border)] bg-[var(--fm-surface)] shadow-[var(--fm-shadow-elevated)] backdrop-blur-xl overscroll-contain animate-[megaMenuCurtainDrop_320ms_var(--fm-motion-ease)_both]"
           >
             <div className="flex items-end justify-between gap-fm-6 border-b border-[var(--fm-border-soft)] px-fm-6 py-fm-5">
               <div>
