@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
+import { Inter, Unbounded, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "../styles/page-coherence.css";
 import GlobalCursorGlow from "@/components/GlobalCursorGlow";
@@ -9,6 +10,10 @@ import Preloader from "@/components/Preloader";
 import SiteChrome from "@/components/SiteChrome";
 import AuthProvider from "@/components/auth/AuthProvider";
 import ApplicationStateProvider from "@/components/application/ApplicationStateProvider";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+const unbounded = Unbounded({ subsets: ["latin"], variable: "--font-display", display: "swap" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Audvertax, Get a U.S. Company and Finally Get Paid",
@@ -23,7 +28,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${inter.variable} ${unbounded.variable} ${geistMono.variable}`}>
       <body className="antialiased">
         <AuthProvider>
           <ApplicationStateProvider>
