@@ -19,10 +19,15 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
+  deleteAdminDocument,
   getAdminApplication,
   getAdminApplications,
+  getAdminUsers,
   updateAdminApplicationStatus,
+  updateAdminPaymentStatus,
   type AdminApplicationDetail,
+  type AdminPaymentState,
+  type ApplicationDocument,
   login,
   uploadAdminDocument,
 } from "@/lib/api";
@@ -32,7 +37,8 @@ import {
   StaffManagementView,
 } from "@/components/admin/AdminOperations";
 
-const adminStatuses = ["processing", "completed", "cancelled"] as const;
+const adminStatuses = ["submitted", "processing", "completed", "cancelled"] as const;
+const paymentStatuses = ["pending", "paid", "refunded"] as const;
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(
@@ -93,6 +99,134 @@ function MembersPanel({ members }: { members: unknown }) {
         })}
       </div>
     </div>
+  );
+}
+
+function normalizeDocumentRole(key: string): "owner" | "member" | "staff" | "admin" | "customer" | null {
+  const normalizedKey = key.toLowerCase();
+
+  if (normalizedKey.includes("owner")) return "owner";
+  if (normalizedKey.includes("member") || normalizedKey === "members") return "member";
+  if (normalizedKey.includes("staff") || normalizedKey === "staffuploads") return "staff";
+  if (normalizedKey.includes("admin")) return "admin";
+  if (normalizedKey.includes("customer")) return "customer";
+
+  return null;
+}
+
+function flattenRoleDocuments(value: unknown, role: "owner" | "member" | "staff" | "admin" | "customer"): ApplicationDocument[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => flattenRoleDocuments(item, role));
+  }
+
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const item = value as Record<string, unknown>;
+  const isFileLike = typeof item.path === "string" && (typeof item.id === "string" || typeof item.name === "string" || typeof item.type === "string");
+
+  if (isFileLike) {
+    return [{
+      id: typeof item.id === "string" ? item.id : undefined,
+      path: typeof item.path === "string" ? item.path : undefined,
+      url: typeof item.url === "string" ? item.url : null,
+      name: typeof item.name === "string" ? item.name : undefined,
+      documentName: typeof item.documentName === "string" ? item.documentName : typeof item.name === "string" ? item.name : undefined,
+      size: typeof item.size === "number" ? item.size : undefined,
+      type: typeof item.type === "string" ? item.type : undefined,
+      uploadedAt: typeof item.uploadedAt === "string" ? item.uploadedAt : undefined,
+      uploadedBy: typeof item.uploadedByName === "string" ? item.uploadedByName : undefined,
+      uploadedByRole: typeof item.uploadedByRole === "string" ? item.uploadedByRole : role,
+      category: role,
+    }];
+  }
+
+  return Object.entries(item).flatMap(([key, child]) => {
+    const nextRole = normalizeDocumentRole(key) ?? role;
+    return flattenRoleDocuments(child, nextRole);
+  });
+}
+
+function buildRoleDocumentGroups(application: AdminApplicationDetail["application"]) {
+  const root = (application as { documents?: Record<string, unknown> }).documents ?? (application as { data?: { documents?: Record<string, unknown> } }).data?.documents ?? {};
+  const groups: Array<{ key: string; title: string; documents: ApplicationDocument[] }> = [];
+
+  Object.entries(root).forEach(([key, value]) => {
+    const role = normalizeDocumentRole(key) ?? "customer";
+
+    if (role === "member") {
+      if (Array.isArray(value)) {
+        value.forEach((member, index) => {
+          const documents = flattenRoleDocuments(member, "member");
+          if (documents.length) {
+            groups.push({ key: `member-${index + 1}`, title: `Member ${index + 1} documents`, documents });
+          }
+        });
+        return;
+      }
+
+      const documents = flattenRoleDocuments(value, "member");
+      if (documents.length) {
+        groups.push({ key: "member-documents", title: "Member documents", documents });
+      }
+      return;
+    }
+
+    const documents = flattenRoleDocuments(value, role);
+    if (documents.length) {
+      const title = role.charAt(0).toUpperCase() + role.slice(1) + " documents";
+      groups.push({ key: role, title, documents });
+    }
+  });
+
+  return groups;
+}
+
+function DocumentCard({ title, documents, onRemoveDocument, applicationId }: { title: string; documents: ApplicationDocument[]; applicationId: string; onRemoveDocument?: (document: ApplicationDocument) => void }) {
+  return (
+    <section className="rounded-fm-xl border border-fm-border-soft bg-fm-surface p-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)] md:p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fm-text-primary">{title}</p>
+        <span className="rounded-full border border-fm-border-soft bg-fm-surface-raised px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-fm-text-secondary">
+          {documents.length} file{documents.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      {documents.length ? (
+        <div className="space-y-2">
+          {documents.map((document, index) => {
+            const name = document.documentName ?? document.name ?? document.path?.split("/").pop() ?? "Uploaded document";
+            return (
+              <div key={`${document.path ?? document.url ?? "document"}-${index}`} className="flex items-center justify-between gap-2 rounded-fm-lg border border-fm-border-soft bg-fm-surface-raised px-3 py-2.5 transition hover:border-fm-lime hover:bg-fm-surface">
+                <a
+                  href={document.url ?? document.path ?? "#"}
+                  download={document.name ?? document.documentName ?? true}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 text-sm text-fm-text-primary"
+                >
+                  <span className="min-w-0 flex-1 break-all text-[13px] leading-snug font-medium">{name}</span>
+                  <ExternalLink size={16} className="shrink-0 text-fm-text-secondary" />
+                </a>
+
+                {onRemoveDocument && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveDocument(document)}
+                    className="shrink-0 rounded-fm-md border border-fm-danger/30 bg-fm-danger/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-danger transition hover:bg-fm-danger/10"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-xs text-fm-text-secondary">No documents uploaded.</p>
+      )}
+    </section>
   );
 }
 
@@ -292,6 +426,8 @@ export default function AdminPage() {
   const [sort, setSort] = useState<"recent" | "old">("recent");
   const [view, setView] = useState<"applications" | "users" | "staff" | "security">("users");
   const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [paymentStatusesMap, setPaymentStatusesMap] = useState<Record<string, AdminPaymentState>>({});
+  const [paymentStatus, setPaymentStatus] = useState<AdminPaymentState>("pending");
 
   useEffect(() => {
     if (authLoading) return;
@@ -306,15 +442,19 @@ export default function AdminPage() {
       router.replace("/dashboard");
       return;
     }
-    getAdminApplications()
-      .then((response) =>
-        setApps(
-          response.data.applications.map((app) => ({
-            ...app,
-            serviceSlug: app.serviceSlug ?? app.service,
-          })),
-        ),
-      )
+    Promise.all([getAdminApplications(), getAdminUsers()])
+      .then(([applicationsResponse, usersResponse]) => {
+        const nextApps = applicationsResponse.data.applications.map((app) => ({
+          ...app,
+          serviceSlug: app.serviceSlug ?? app.service,
+        }));
+        setApps(nextApps);
+        setPaymentStatusesMap(
+          Object.fromEntries(
+            usersResponse.data.users.map((entry) => [entry.id, entry.paymentStatus ?? "pending"]),
+          ) as Record<string, AdminPaymentState>,
+        );
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "Unable to load applications."))
       .finally(() => setLoading(false));
   }, [authLoading, router, user]);
@@ -379,7 +519,19 @@ export default function AdminPage() {
     setDetailLoading(true);
     setError("");
     try {
-      setSelected((await getAdminApplication(id)).data);
+      const detail = (await getAdminApplication(id)).data;
+      const roleDocuments = buildRoleDocumentGroups(detail.application).flatMap((group) => group.documents);
+      const allDocuments = [...detail.signedDocuments, ...roleDocuments] as ApplicationDocument[];
+      const mergedDocuments = Array.from(
+        allDocuments.reduce((documents, document) => {
+          const key = document.path ?? document.id ?? document.documentName ?? document.name ?? `document-${documents.size}`;
+          documents.set(key, { ...(documents.get(key) ?? {}), ...document });
+          return documents;
+        }, new Map<string, ApplicationDocument>()).values(),
+      );
+      const selectedCustomerId = detail.customer?.id ?? "";
+      setSelected({ ...detail, signedDocuments: mergedDocuments });
+      setPaymentStatus(selectedCustomerId ? paymentStatusesMap[selectedCustomerId] ?? "pending" : "pending");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load application.");
     } finally {
@@ -406,6 +558,20 @@ export default function AdminPage() {
     }
   }
 
+  async function changePaymentStatus(status: AdminPaymentState) {
+    if (!selected?.customer) return;
+    try {
+      await updateAdminPaymentStatus(selected.customer.id, status);
+      setPaymentStatusesMap((current) => ({
+        ...current,
+        [selected.customer!.id]: status,
+      }));
+      setPaymentStatus(status);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update payment status.");
+    }
+  }
+
   async function handleLogout() {
     await logout();
     router.replace("/admin");
@@ -417,14 +583,61 @@ export default function AdminPage() {
     setError("");
     try {
       const response = await uploadAdminDocument(selected.application.id, file);
+      const uploadedDocument: ApplicationDocument = {
+        ...response.data,
+        documentName: file.name,
+        name: file.name,
+        uploadedByRole: "admin",
+        category: "admin",
+        source: "Admin upload",
+        uploadedBy: "admin",
+      };
       setSelected({
         ...selected,
-        signedDocuments: [...selected.signedDocuments, response.data],
+        signedDocuments: [...selected.signedDocuments, uploadedDocument],
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to upload document.");
     } finally {
       setUploadingDocument(false);
+    }
+  }
+
+  async function removeDocument(document: AdminApplicationDetail["signedDocuments"][number]) {
+    if (!selected) return;
+
+    const documentIdentifier = document.id ?? document.path ?? document.name ?? document.documentName;
+    const displayName = document.documentName ?? document.name ?? document.path?.split("/").pop() ?? "this document";
+
+    if (!documentIdentifier) {
+      setError("This document cannot be removed because it has no identifier.");
+      return;
+    }
+
+    const confirmed = window.confirm(`Remove "${displayName}" from this application?`);
+    if (!confirmed) return;
+
+    try {
+      await deleteAdminDocument(selected.application.id, documentIdentifier);
+
+      const filteredSignedDocuments = selected.signedDocuments.filter((item) => {
+        if (document.id && item.id && document.id === item.id) return false;
+        if (document.path && item.path && document.path === item.path) return false;
+        if (document.name && item.name && document.name === item.name) return false;
+        if (document.documentName && item.documentName && document.documentName === item.documentName) return false;
+        return true;
+      });
+
+      setSelected({
+        ...selected,
+        application: {
+          ...selected.application,
+          documents: (selected.application.documents ?? {}) as Record<string, unknown>,
+        },
+        signedDocuments: filteredSignedDocuments,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to remove document.");
     }
   }
 
@@ -639,19 +852,53 @@ export default function AdminPage() {
                       </button>
                     </div>
                     <div className="mt-6 space-y-5">
-                      <div>
-                        <p className="fm-label">Status</p>
-                        <select
-                          value={selected.application.status}
-                          onChange={(e) => changeStatus(e.target.value as any)}
-                          className="mt-2 h-10 w-full rounded-fm-md border border-fm-border bg-fm-graphite-deep px-3 text-sm"
-                        >
-                          {adminStatuses.map((s) => (
-                            <option key={s} value={s}>
-                              {displayStatus(s)}
-                            </option>
-                          ))}
-                        </select>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <p className="fm-label">Payment status</p>
+                          <select
+                            value={paymentStatus}
+                            onChange={(e) => void changePaymentStatus(e.target.value as AdminPaymentState)}
+                            className="mt-2 h-10 w-full rounded-fm-md border border-fm-border bg-fm-graphite-deep px-3 text-sm"
+                          >
+                            {paymentStatuses.map((s) => (
+                              <option key={s} value={s}>
+                                {displayStatus(s)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <p className="fm-label">Application status</p>
+                          <select
+                            value={selected.application.status ?? "submitted"}
+                            onChange={(e) => void changeStatus(e.target.value as (typeof adminStatuses)[number])}
+                            className="mt-2 h-10 w-full rounded-fm-md border border-fm-border bg-fm-graphite-deep px-3 text-sm"
+                          >
+                            {adminStatuses.map((s) => (
+                              <option key={s} value={s}>
+                                {s === "cancelled" ? "Rejected" : displayStatus(s)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="flex items-end">
+                          <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-fm-md border border-dashed border-fm-border bg-fm-graphite-deep px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-text-secondary hover:border-fm-lime hover:text-fm-lime">
+                            <Upload size={14} />
+                            {uploadingDocument ? "Uploading..." : "Upload document"}
+                            <input
+                              type="file"
+                              accept=".pdf,.jpg,.jpeg,.png"
+                              disabled={uploadingDocument}
+                              onChange={(event) => {
+                                void uploadDocument(event.target.files?.[0]);
+                                event.currentTarget.value = "";
+                              }}
+                              className="sr-only"
+                            />
+                          </label>
+                        </div>
                       </div>
                       <div>
                         <p className="fm-label">Submitted</p>
@@ -683,39 +930,54 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <div>
-                        <p className="fm-label">Documents</p>
-                        <div className="mt-2 space-y-2">
-                          {selected.signedDocuments.length ? (
-                            selected.signedDocuments.map((doc) => (
-                              <a
-                                key={doc.path}
-                                href={doc.url ?? "#"}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center justify-between rounded-fm-md border border-fm-border p-3 text-sm hover:bg-fm-surface-raised"
-                              >
-                                <span className="truncate">{doc.path?.split("/").pop() ?? "Uploaded document"}</span>
-                                <ExternalLink size={15} />
-                              </a>
-                            ))
-                          ) : (
-                            <p className="text-sm text-fm-text-secondary">No uploaded documents.</p>
-                          )}
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <p className="fm-label">Documents</p>
                         </div>
-                        <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-fm-md border border-dashed border-fm-border p-3 text-xs font-semibold text-fm-text-secondary hover:border-fm-lime hover:text-fm-lime">
-                          <Upload size={15} />
-                          {uploadingDocument ? "Uploading..." : "Upload document"}
-                          <input
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png"
-                            disabled={uploadingDocument}
-                            onChange={(event) => {
-                              void uploadDocument(event.target.files?.[0]);
-                              event.currentTarget.value = "";
-                            }}
-                            className="sr-only"
-                          />
-                        </label>
+
+                        <div className="space-y-3">
+                          {(() => {
+                            const roleGroups = buildRoleDocumentGroups(selected.application);
+                            const grouped = roleGroups.map((group) => ({
+                              ...group,
+                              documents: [
+                                ...group.documents,
+                                ...selected.signedDocuments.filter((document) => {
+                                  const category = (document.category ?? document.uploadedByRole ?? "customer").toLowerCase();
+                                  return category === group.key || category === group.title.toLowerCase().replace(" documents", "");
+                                }),
+                              ].filter((document, index, list) => {
+                                const key = document.path ?? document.id ?? document.documentName ?? document.name ?? `${index}`;
+                                return list.findIndex((entry) => (entry.path ?? entry.id ?? entry.documentName ?? entry.name ?? `${index}`) === key) === index;
+                              }),
+                            }));
+
+                            const flattened = grouped.flatMap((group) => group.documents);
+                            const fallbackDocuments = selected.signedDocuments.filter(
+                              (document) => !flattened.some((entry) => {
+                                const left = document.path ?? document.id ?? document.documentName ?? document.name ?? "";
+                                const right = entry.path ?? entry.id ?? entry.documentName ?? entry.name ?? "";
+                                return left && right && left === right;
+                              }),
+                            );
+
+                            if (!roleGroups.length && !fallbackDocuments.length) {
+                              return <p className="text-sm text-fm-text-secondary">No uploaded documents.</p>;
+                            }
+
+                            return [
+                              ...grouped.filter((group) => group.documents.length),
+                              ...(fallbackDocuments.length ? [{ key: "uploaded", title: "Uploaded documents", documents: fallbackDocuments }] : []),
+                            ].map((group) => (
+                              <DocumentCard
+                                key={group.key}
+                                title={group.title}
+                                documents={group.documents}
+                                applicationId={selected.application.id}
+                                onRemoveDocument={removeDocument}
+                              />
+                            ));
+                          })()}
+                        </div>
                       </div>
                     </div>
                   </div>

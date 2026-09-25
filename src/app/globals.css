@@ -8,15 +8,18 @@
   html {
     scroll-behavior: smooth;
     background: var(--fm-graphite);
+    --font-sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --font-display: "Arial Black", "Segoe UI", sans-serif;
+    --font-mono: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
   }
   body {
     margin: 0;
     background: var(--fm-graphite);
     color: var(--fm-text-primary);
-    font-family: var(--font-display), Unbounded, Inter, Arial, sans-serif;
+    font-family: var(--font-sans);
   }
   body :is(h1, h2, h3, h4, h5, h6) {
-    font-family: var(--font-display), Unbounded, Inter, Arial, sans-serif;
+    font-family: var(--font-display);
     letter-spacing: -0.045em;
   }
   a {

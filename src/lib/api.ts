@@ -352,6 +352,13 @@ export async function uploadAdminDocument(applicationId: string, file: File, doc
   );
 }
 
+export async function deleteAdminDocument(applicationId: string, documentIdentifier: string) {
+  return apiRequest<{ success: true; data: { message: string } }>(
+    `/api/v1/admin/applications/${encodeURIComponent(applicationId)}/documents/${encodeURIComponent(documentIdentifier)}`,
+    { method: "DELETE" },
+  );
+}
+
 export async function uploadStaffDocument(applicationId: string, file: File, documentName?: string) {
   const formData = new FormData();
   formData.append("document", file);
@@ -361,6 +368,13 @@ export async function uploadStaffDocument(applicationId: string, file: File, doc
   return apiRequest<{ success: true; data: { path: string; url: string | null } }>(
     `/api/v1/staff/applications/${encodeURIComponent(applicationId)}/documents`,
     { method: "POST", body: formData },
+  );
+}
+
+export async function deleteStaffDocument(applicationId: string, documentIdentifier: string) {
+  return apiRequest<{ success: true; data: { message: string } }>(
+    `/api/v1/staff/applications/${encodeURIComponent(applicationId)}/documents/${encodeURIComponent(documentIdentifier)}`,
+    { method: "DELETE" },
   );
 }
 
