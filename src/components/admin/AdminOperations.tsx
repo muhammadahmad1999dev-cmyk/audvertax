@@ -24,6 +24,7 @@ import {
   removeAdminStaff,
   updateAdminPassword,
   updateAdminApplicationStatus,
+  updateAdminPaymentStatus,
   uploadAdminDocument,
   type AdminApplicationRecord,
   type AdminApplicationDetail,
@@ -74,6 +75,7 @@ function readableKey(key: string) {
 }
 
 const applicationStatuses = ["submitted", "processing", "completed", "cancelled"] as const;
+const paymentStatuses = ["pending", "paid", "refunded"] as const;
 
 function ApplicationData({ value }: { value: unknown }) {
   if (Array.isArray(value)) {
@@ -215,11 +217,9 @@ export function AdminUsersView() {
   const [applicationDocuments, setApplicationDocuments] = useState<Record<string, ApplicationDocument[]>>({});
   const [loadingDocuments, setLoadingDocuments] = useState<string | null>(null);
   const [updatingApplicationId, setUpdatingApplicationId] = useState<string | null>(null);
-  const [uploadTarget, setUploadTarget] = useState<{ applicationId: string; options: string[] } | null>(null);
-  const [uploadDocumentName, setUploadDocumentName] = useState("");
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [paymentUpdatingId, setPaymentUpdatingId] = useState<string | null>(null);
 
   async function loadUsers() {
     setLoading(true);
@@ -245,22 +245,19 @@ export function AdminUsersView() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function uploadDocument() {
-    if (!uploadTarget || !uploadFile) return;
-    setUploadingApplication(uploadTarget.applicationId);
+  async function uploadDocument(applicationId: string, file: File | undefined) {
+    if (!file) return;
+    setUploadingApplication(applicationId);
     setError("");
     try {
-      const response = await uploadAdminDocument(uploadTarget.applicationId, uploadFile, uploadDocumentName);
+      const response = await uploadAdminDocument(applicationId, file, file.name);
       setApplicationDocuments((current) => ({
         ...current,
-        [uploadTarget.applicationId]: [
-          ...(current[uploadTarget.applicationId] ?? []),
+        [applicationId]: [
+          ...(current[applicationId] ?? []),
           response.data,
         ],
       }));
-      setUploadTarget(null);
-      setUploadFile(null);
-      setUploadDocumentName("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to upload document.");
     } finally {
@@ -309,6 +306,24 @@ export function AdminUsersView() {
     }
   }
 
+  async function changePaymentStatus(application: AdminApplicationRecord, status: (typeof paymentStatuses)[number]) {
+    if (!application.customer?.id) return;
+    setPaymentUpdatingId(application.id);
+    setError("");
+    try {
+      await updateAdminPaymentStatus(application.customer.id, status);
+      setUsers((current) =>
+        current.map((user) =>
+          user.id === application.customer?.id ? { ...user, paymentStatus: status } : user,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update payment status.");
+    } finally {
+      setPaymentUpdatingId(null);
+    }
+  }
+
   const selectedApplications = selectedUser
     ? applications.filter((application) => application?.customer?.id === selectedUser.id)
     : [];
@@ -349,7 +364,32 @@ export function AdminUsersView() {
                         <p className="text-sm font-semibold">{application.serviceSlug ?? application.service}</p>
                         <p className="mt-1 text-xs text-fm-text-secondary">Submitted {formatDate(application.createdAt)}</p>
                       </button>
-                      <span className="flex items-center gap-2">
+                    </div>
+
+                    <div className="mt-3 grid gap-2 md:grid-cols-3">
+                      <div>
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-text-secondary">Payment</p>
+                        <select
+                          value={users.find((user) => user.id === application.customer?.id)?.paymentStatus ?? "pending"}
+                          disabled={paymentUpdatingId === application.id}
+                          onChange={(event) =>
+                            void changePaymentStatus(
+                              application,
+                              event.target.value as (typeof paymentStatuses)[number],
+                            )
+                          }
+                          className="h-9 w-full rounded-fm-md border border-fm-border bg-fm-surface px-2 text-xs font-medium capitalize outline-none focus:border-fm-lime disabled:opacity-60"
+                        >
+                          {paymentStatuses.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-text-secondary">Status</p>
                         <select
                           value={application.status ?? "submitted"}
                           disabled={updatingApplicationId === application.id}
@@ -359,24 +399,43 @@ export function AdminUsersView() {
                               event.target.value as (typeof applicationStatuses)[number],
                             )
                           }
-                          onClick={(event) => event.stopPropagation()}
-                          className="h-9 rounded-fm-md border border-fm-border bg-fm-surface px-2 text-xs font-medium capitalize outline-none focus:border-fm-lime disabled:opacity-60"
+                          className="h-9 w-full rounded-fm-md border border-fm-border bg-fm-surface px-2 text-xs font-medium capitalize outline-none focus:border-fm-lime disabled:opacity-60"
                         >
                           {applicationStatuses.map((status) => (
                             <option key={status} value={status}>
-                              {status}
+                              {status === "cancelled" ? "Rejected" : status}
                             </option>
                           ))}
                         </select>
-                        <button
-                          type="button"
-                          aria-label="Toggle application details"
-                          onClick={() => void toggleApplication(application.id)}
-                          className="text-lg text-fm-text-tertiary"
-                        >
-                          {expandedApplicationId === application.id ? "−" : "+"}
-                        </button>
-                      </span>
+                      </div>
+
+                      <div className="flex items-end">
+                        <label className="flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-fm-md border border-dashed border-fm-border px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-text-secondary hover:border-fm-lime hover:text-fm-lime">
+                          <Upload size={14} />
+                          {uploadingApplication === application.id ? "Uploading..." : "Upload"}
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            disabled={uploadingApplication === application.id}
+                            onChange={(event) => {
+                              void uploadDocument(application.id, event.target.files?.[0]);
+                              event.currentTarget.value = "";
+                            }}
+                            className="sr-only"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        aria-label="Toggle application details"
+                        onClick={() => void toggleApplication(application.id)}
+                        className="text-lg text-fm-text-tertiary"
+                      >
+                        {expandedApplicationId === application.id ? "−" : "+"}
+                      </button>
                     </div>
                     {expandedApplicationId === application.id && (
                       <div className="mt-4 border-t border-fm-border-soft pt-4">
@@ -404,21 +463,6 @@ export function AdminUsersView() {
                         )}
                         <p className="fm-label mb-2">Complete application details</p>
                         <ApplicationData value={application.data} />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const options = Object.keys(application.documents ?? {}).length
-                              ? Object.keys(application.documents)
-                              : ["other"];
-                            setUploadTarget({ applicationId: application.id, options });
-                            setUploadDocumentName(options[0]);
-                            setUploadFile(null);
-                          }}
-                          className="mt-3 inline-flex items-center gap-2 rounded-fm-md border border-dashed border-fm-border px-3 py-2 text-xs font-semibold text-fm-text-secondary hover:border-fm-lime hover:text-fm-lime"
-                        >
-                          <Upload size={14} />
-                          Upload document
-                        </button>
                       </div>
                     )}
                 </div>
@@ -435,21 +479,6 @@ export function AdminUsersView() {
           </div>
         </>
         )
-      )}
-      {uploadTarget && (
-        <DocumentUploadDialog
-          options={uploadTarget.options}
-          documentName={uploadDocumentName}
-          file={uploadFile}
-          submitting={uploadingApplication === uploadTarget.applicationId}
-          onNameChange={setUploadDocumentName}
-          onFileChange={setUploadFile}
-          onSubmit={() => void uploadDocument()}
-          onClose={() => {
-            setUploadTarget(null);
-            setUploadFile(null);
-          }}
-        />
       )}
     </Panel>
   );
