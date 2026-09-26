@@ -391,7 +391,7 @@ export async function uploadAdminDocument(applicationId: string, file: File, doc
 }
 
 export async function deleteAdminDocument(applicationId: string, documentIdentifier: string) {
-  return apiRequest<{ success: true; data: { message: string } }>(
+  return apiRequest<DocumentMutationResponse>(
     `/api/v1/admin/applications/${encodeURIComponent(applicationId)}/documents/${encodeURIComponent(documentIdentifier)}`,
     { method: "DELETE" },
   );
@@ -410,7 +410,7 @@ export async function uploadStaffDocument(applicationId: string, file: File, doc
 }
 
 export async function deleteStaffDocument(applicationId: string, documentIdentifier: string) {
-  return apiRequest<{ success: true; data: { message: string } }>(
+  return apiRequest<DocumentMutationResponse>(
     `/api/v1/staff/applications/${encodeURIComponent(applicationId)}/documents/${encodeURIComponent(documentIdentifier)}`,
     { method: "DELETE" },
   );
@@ -455,6 +455,7 @@ export type AdminApplicationDetail = {
 
 export type ApplicationDocument = {
   id?: string;
+  documentId?: string;
   path?: string;
   url?: string | null;
   name?: string;
@@ -469,6 +470,15 @@ export type ApplicationDocument = {
   uploadedByRole?: "customer" | "admin" | "staff" | string;
   documentName?: string;
   category?: "owner" | "member" | "staff" | "admin" | "customer" | string;
+};
+
+export type DocumentMutationResponse = {
+  success: true;
+  data: {
+    deletedDocumentId: string;
+    documents: Record<string, unknown>;
+    application: ApplicationRecord;
+  };
 };
 
 export async function getAdminApplication(applicationId: string) {

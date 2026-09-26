@@ -99,11 +99,12 @@ function flattenRoleDocuments(value: unknown, role: "owner" | "member" | "staff"
   }
 
   const item = value as Record<string, unknown>;
-  const isFileLike = typeof item.path === "string" && (typeof item.id === "string" || typeof item.name === "string" || typeof item.type === "string");
+  const isFileLike = typeof item.path === "string" && (typeof item.id === "string" || typeof item.documentId === "string" || typeof item.name === "string" || typeof item.type === "string");
 
   if (isFileLike) {
     return [{
       id: typeof item.id === "string" ? item.id : undefined,
+      documentId: typeof item.documentId === "string" ? item.documentId : undefined,
       path: typeof item.path === "string" ? item.path : undefined,
       url: typeof item.url === "string" ? item.url : null,
       name: typeof item.name === "string" ? item.name : undefined,
@@ -195,7 +196,7 @@ function removeDocumentFromTree(value: unknown, target: ApplicationDocument): un
   );
 }
 
-function DocumentCard({ title, documents, applicationId, onRemoveDocument }: { title: string; documents: ApplicationDocument[]; applicationId: string; onRemoveDocument?: (document: ApplicationDocument) => void }) {
+function DocumentCard({ title, documents, applicationId, deletingDocumentId, onRemoveDocument }: { title: string; documents: ApplicationDocument[]; applicationId: string; deletingDocumentId?: string | null; onRemoveDocument?: (document: ApplicationDocument) => void }) {
   return (
     <section className="rounded-fm-xl border border-fm-border-soft bg-fm-surface p-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)] md:p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -225,10 +226,11 @@ function DocumentCard({ title, documents, applicationId, onRemoveDocument }: { t
                 {onRemoveDocument && (
                   <button
                     type="button"
+                    disabled={deletingDocumentId === (document.id ?? document.documentId)}
                     onClick={() => onRemoveDocument(document)}
                     className="shrink-0 rounded-fm-md border border-fm-danger/30 bg-fm-danger/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-danger transition hover:bg-fm-danger/10"
                   >
-                    Remove
+                    {deletingDocumentId === (document.id ?? document.documentId) ? "Removing..." : "Remove"}
                   </button>
                 )}
               </div>
@@ -318,7 +320,7 @@ function DocumentUploadDialog({
         </label>
         <div className="mt-6 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="h-10 rounded-fm-md border border-fm-border px-4 text-sm font-semibold text-fm-text-secondary">Cancel</button>
-          <button type="button" disabled={!file || submitting} onClick={onSubmit} className="inline-flex h-10 items-center rounded-fm-md bg-fm-lime px-4 text-sm font-semibold text-fm-graphite-deep disabled:cursor-not-allowed disabled:opacity-50">{submitting ? "Uploading..." : "Upload document"}</button>
+          <button type="button" disabled={!file || submitting} onClick={onSubmit} className="inline-flex h-10 items-center gap-2 rounded-fm-md bg-fm-lime px-4 text-sm font-semibold text-fm-graphite-deep disabled:cursor-not-allowed disabled:opacity-50">{submitting && <Loader2 size={15} className="animate-spin" />}{submitting ? "Uploading..." : "Upload document"}</button>
         </div>
       </div>
     </div>
@@ -388,6 +390,7 @@ export function AdminUsersView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [paymentUpdatingId, setPaymentUpdatingId] = useState<string | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
 
   async function loadUsers() {
     setLoading(true);
@@ -469,7 +472,7 @@ export function AdminUsersView() {
   }
 
   async function removeApplicationDocument(applicationId: string, document: ApplicationDocument) {
-    const documentIdentifier = document.id ?? document.path ?? document.name ?? document.documentName;
+    const documentIdentifier = document.id ?? document.documentId;
     const displayName = document.documentName ?? document.name ?? document.path?.split("/").pop() ?? "this document";
 
     if (!documentIdentifier) {
@@ -486,17 +489,23 @@ export function AdminUsersView() {
     });
     if (!confirmed) return;
 
+    setDeletingDocumentId(documentIdentifier);
+    setError("");
     try {
-      await deleteAdminDocument(applicationId, documentIdentifier);
+      const response = await deleteAdminDocument(applicationId, documentIdentifier);
+      const returnedDocuments = buildRoleDocumentGroups({
+        ...response.data.application,
+        documents: response.data.documents,
+      }).flatMap((group) => group.documents);
       setApplicationDocuments((current) => ({
         ...current,
-        [applicationId]: (current[applicationId] ?? []).filter((item) => !matchesDocument(document, item)),
+        [applicationId]: returnedDocuments,
       }));
       setApplications((current) => current.map((application) =>
         application.id === applicationId
           ? {
               ...application,
-              documents: removeDocumentFromTree(application.documents, document) as Record<string, unknown>,
+              ...response.data.application,
             }
           : application,
       ));
@@ -508,6 +517,8 @@ export function AdminUsersView() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove document.");
+    } finally {
+      setDeletingDocumentId(null);
     }
   }
 
@@ -637,6 +648,7 @@ export function AdminUsersView() {
                       <div className="flex items-end">
                         <label className="flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-fm-md border border-dashed border-fm-border px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-text-secondary hover:border-fm-lime hover:text-fm-lime">
                           <Upload size={14} />
+                          {uploadingApplication === application.id && <Loader2 size={14} className="animate-spin" />}
                           {uploadingApplication === application.id ? "Uploading..." : "Upload"}
                           <input
                             type="file"
@@ -703,6 +715,7 @@ export function AdminUsersView() {
                                   title={group.title}
                                   documents={group.documents}
                                   applicationId={application.id}
+                                  deletingDocumentId={deletingDocumentId}
                                   onRemoveDocument={(document) => void removeApplicationDocument(application.id, document)}
                                 />
                               ));

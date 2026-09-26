@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, Upload, Users } from "lucide-react";
+import { Download, Loader2, Upload, Users } from "lucide-react";
 import {
   deleteStaffDocument,
   getStaffDocumentDownloadUrl,
@@ -106,11 +106,12 @@ function flattenRoleDocuments(value: unknown, role: "owner" | "member" | "staff"
   }
 
   const item = value as Record<string, unknown>;
-  const isFileLike = typeof item.path === "string" && (typeof item.id === "string" || typeof item.name === "string" || typeof item.type === "string");
+  const isFileLike = typeof item.path === "string" && (typeof item.id === "string" || typeof item.documentId === "string" || typeof item.name === "string" || typeof item.type === "string");
 
   if (isFileLike) {
     return [{
       id: typeof item.id === "string" ? item.id : undefined,
+      documentId: typeof item.documentId === "string" ? item.documentId : undefined,
       path: typeof item.path === "string" ? item.path : undefined,
       url: typeof item.url === "string" ? item.url : null,
       name: typeof item.name === "string" ? item.name : undefined,
@@ -213,7 +214,7 @@ function removeDocumentFromTree(value: unknown, target: ApplicationDocument): un
   return nextRecord;
 }
 
-function DocumentCard({ title, documents, applicationId, onRemoveDocument }: { title: string; documents: ApplicationDocument[]; applicationId: string; onRemoveDocument?: (applicationId: string, document: ApplicationDocument) => void }) {
+function DocumentCard({ title, documents, applicationId, deletingDocumentId, onRemoveDocument }: { title: string; documents: ApplicationDocument[]; applicationId: string; deletingDocumentId?: string | null; onRemoveDocument?: (applicationId: string, document: ApplicationDocument) => void }) {
   return (
     <section className="rounded-fm-xl border border-fm-border-soft bg-fm-surface p-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)] md:p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -245,10 +246,11 @@ function DocumentCard({ title, documents, applicationId, onRemoveDocument }: { t
                 {!hideRemove && (
                   <button
                     type="button"
+                    disabled={deletingDocumentId === (document.id ?? document.documentId)}
                     onClick={() => { void onRemoveDocument?.(applicationId, document); }}
                     className="shrink-0 rounded-fm-md border border-fm-danger/30 bg-fm-danger/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-danger transition hover:bg-fm-danger/10"
                   >
-                    Remove
+                    {deletingDocumentId === (document.id ?? document.documentId) ? "Removing..." : "Remove"}
                   </button>
                 )}
               </div>
@@ -273,6 +275,7 @@ export function StaffUsersView() {
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([getStaffUsers(), getStaffApplications()])
@@ -351,7 +354,7 @@ export function StaffUsersView() {
   }
 
   async function removeStaffDocument(applicationId: string, document: ApplicationDocument) {
-    const documentIdentifier = document.id ?? document.path ?? document.name ?? document.documentName;
+    const documentIdentifier = document.id ?? document.documentId;
     const displayName = document.documentName ?? document.name ?? document.path?.split("/").pop() ?? "this document";
 
     if (!documentIdentifier) {
@@ -368,24 +371,23 @@ export function StaffUsersView() {
     });
     if (!confirmed) return;
 
+    setDeletingDocumentId(documentIdentifier);
     setError("");
 
     try {
-      await deleteStaffDocument(applicationId, documentIdentifier);
+      const response = await deleteStaffDocument(applicationId, documentIdentifier);
+      const returnedDocuments = buildRoleDocumentGroups({
+        ...response.data.application,
+        documents: response.data.documents,
+      }).flatMap((group) => group.documents);
 
       setApplications((current) => current.map((item) => {
         if (item.application.id !== applicationId) return item;
 
-        const filteredSignedDocuments = item.signedDocuments.filter((entry) => !matchesDocument(document, entry));
-        const updatedDocuments = removeDocumentFromTree(item.application.documents, document) as Record<string, unknown>;
-
         return {
           ...item,
-          application: {
-            ...item.application,
-            documents: updatedDocuments,
-          },
-          signedDocuments: filteredSignedDocuments,
+          application: response.data.application,
+          signedDocuments: returnedDocuments,
         };
       }));
 
@@ -396,6 +398,8 @@ export function StaffUsersView() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove staff document.");
+    } finally {
+      setDeletingDocumentId(null);
     }
   }
 
@@ -416,10 +420,10 @@ export function StaffUsersView() {
                   </button>
                   <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                     <select value={application.status ?? "processing"} disabled={updatingStatus === application.id} onChange={(event) => void changeStatus(application, event.target.value as "processing" | "completed" | "cancelled")} className="h-9 w-full rounded-fm-md border border-fm-border bg-fm-surface px-2 text-xs font-medium capitalize outline-none focus:border-fm-lime disabled:opacity-60 sm:w-auto">{(["processing", "completed", "cancelled"] as const).map((status) => <option key={status} value={status}>{status}</option>)}</select>
-                    <label className="inline-flex w-full cursor-pointer items-center justify-center rounded-fm-md border border-dashed border-fm-border px-3 py-2 text-xs font-semibold text-fm-text-secondary hover:border-fm-lime hover:text-fm-lime sm:w-auto">{uploading === application.id ? "Uploading..." : "Upload document"}<input type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={uploading === application.id} onChange={(event) => { void uploadDocument(application.id, event.target.files?.[0]); event.currentTarget.value = ""; }} className="sr-only" /></label>
+                    <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-fm-md border border-dashed border-fm-border px-3 py-2 text-xs font-semibold text-fm-text-secondary hover:border-fm-lime hover:text-fm-lime sm:w-auto">{uploading === application.id && <Loader2 size={14} className="animate-spin" />}{uploading === application.id ? "Uploading..." : "Upload document"}<input type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={uploading === application.id} onChange={(event) => { void uploadDocument(application.id, event.target.files?.[0]); event.currentTarget.value = ""; }} className="sr-only" /></label>
                   </div>
                 </div>
-                {expandedApplicationId === application.id && <div className="mt-4 space-y-4 border-t border-fm-border-soft pt-4"><div><p className="fm-label mb-2">Application details</p><ApplicationData value={application.data} /></div><div><p className="fm-label mb-2">Documents</p><div className="grid gap-3 lg:grid-cols-2">{buildRoleDocumentGroups(application).map((group) => <DocumentCard key={group.key} title={group.title} documents={group.documents} applicationId={application.id} onRemoveDocument={removeStaffDocument} />)}</div></div></div>}
+                {expandedApplicationId === application.id && <div className="mt-4 space-y-4 border-t border-fm-border-soft pt-4"><div><p className="fm-label mb-2">Application details</p><ApplicationData value={application.data} /></div><div><p className="fm-label mb-2">Documents</p><div className="grid gap-3 lg:grid-cols-2">{buildRoleDocumentGroups(application).map((group) => <DocumentCard key={group.key} title={group.title} documents={group.documents} applicationId={application.id} deletingDocumentId={deletingDocumentId} onRemoveDocument={removeStaffDocument} />)}</div></div></div>}
               </div>
             ))}
           </div>}

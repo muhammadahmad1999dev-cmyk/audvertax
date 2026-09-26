@@ -126,11 +126,12 @@ function flattenRoleDocuments(value: unknown, role: "owner" | "member" | "staff"
   }
 
   const item = value as Record<string, unknown>;
-  const isFileLike = typeof item.path === "string" && (typeof item.id === "string" || typeof item.name === "string" || typeof item.type === "string");
+  const isFileLike = typeof item.path === "string" && (typeof item.id === "string" || typeof item.documentId === "string" || typeof item.name === "string" || typeof item.type === "string");
 
   if (isFileLike) {
     return [{
       id: typeof item.id === "string" ? item.id : undefined,
+      documentId: typeof item.documentId === "string" ? item.documentId : undefined,
       path: typeof item.path === "string" ? item.path : undefined,
       url: typeof item.url === "string" ? item.url : null,
       name: typeof item.name === "string" ? item.name : undefined,
@@ -185,7 +186,7 @@ function buildRoleDocumentGroups(application: AdminApplicationDetail["applicatio
   return groups;
 }
 
-function DocumentCard({ title, documents, onRemoveDocument, applicationId }: { title: string; documents: ApplicationDocument[]; applicationId: string; onRemoveDocument?: (document: ApplicationDocument) => void }) {
+function DocumentCard({ title, documents, onRemoveDocument, applicationId, deletingDocumentId }: { title: string; documents: ApplicationDocument[]; applicationId: string; deletingDocumentId?: string | null; onRemoveDocument?: (document: ApplicationDocument) => void }) {
   return (
     <section className="rounded-fm-xl border border-fm-border-soft bg-fm-surface p-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)] md:p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -215,10 +216,11 @@ function DocumentCard({ title, documents, onRemoveDocument, applicationId }: { t
                 {onRemoveDocument && (
                   <button
                     type="button"
+                    disabled={deletingDocumentId === (document.id ?? document.documentId)}
                     onClick={() => onRemoveDocument(document)}
                     className="shrink-0 rounded-fm-md border border-fm-danger/30 bg-fm-danger/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-danger transition hover:bg-fm-danger/10"
                   >
-                    Remove
+                    {deletingDocumentId === (document.id ?? document.documentId) ? "Removing..." : "Remove"}
                   </button>
                 )}
               </div>
@@ -428,6 +430,7 @@ export default function AdminPage() {
   const [sort, setSort] = useState<"recent" | "old">("recent");
   const [view, setView] = useState<"applications" | "users" | "staff" | "security">("users");
   const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [paymentStatusesMap, setPaymentStatusesMap] = useState<Record<string, AdminPaymentState>>({});
   const [paymentStatus, setPaymentStatus] = useState<AdminPaymentState>("pending");
 
@@ -608,7 +611,7 @@ export default function AdminPage() {
   async function removeDocument(document: AdminApplicationDetail["signedDocuments"][number]) {
     if (!selected) return;
 
-    const documentIdentifier = document.id ?? document.path ?? document.name ?? document.documentName;
+    const documentIdentifier = document.id ?? document.documentId;
     const displayName = document.documentName ?? document.name ?? document.path?.split("/").pop() ?? "this document";
 
     if (!documentIdentifier) {
@@ -625,24 +628,18 @@ export default function AdminPage() {
     });
     if (!confirmed) return;
 
+    setDeletingDocumentId(documentIdentifier);
+    setError("");
     try {
-      await deleteAdminDocument(selected.application.id, documentIdentifier);
-
-      const filteredSignedDocuments = selected.signedDocuments.filter((item) => {
-        if (document.id && item.id && document.id === item.id) return false;
-        if (document.path && item.path && document.path === item.path) return false;
-        if (document.name && item.name && document.name === item.name) return false;
-        if (document.documentName && item.documentName && document.documentName === item.documentName) return false;
-        return true;
-      });
-
+      const response = await deleteAdminDocument(selected.application.id, documentIdentifier);
+      const returnedDocuments = buildRoleDocumentGroups({
+        ...response.data.application,
+        documents: response.data.documents,
+      }).flatMap((group) => group.documents);
       setSelected({
         ...selected,
-        application: {
-          ...selected.application,
-          documents: (selected.application.documents ?? {}) as Record<string, unknown>,
-        },
-        signedDocuments: filteredSignedDocuments,
+        application: response.data.application,
+        signedDocuments: returnedDocuments,
       });
 
       showToast({
@@ -652,6 +649,8 @@ export default function AdminPage() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove document.");
+    } finally {
+      setDeletingDocumentId(null);
     }
   }
 
@@ -899,7 +898,7 @@ export default function AdminPage() {
 
                         <div className="flex items-end">
                           <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-fm-md border border-dashed border-fm-border bg-fm-graphite-deep px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-fm-text-secondary hover:border-fm-lime hover:text-fm-lime">
-                            <Upload size={14} />
+                            {uploadingDocument ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                             {uploadingDocument ? "Uploading..." : "Upload document"}
                             <input
                               type="file"
@@ -987,6 +986,7 @@ export default function AdminPage() {
                                 title={group.title}
                                 documents={group.documents}
                                 applicationId={selected.application.id}
+                                deletingDocumentId={deletingDocumentId}
                                 onRemoveDocument={removeDocument}
                               />
                             ));
