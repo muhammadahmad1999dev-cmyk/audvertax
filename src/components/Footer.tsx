@@ -130,10 +130,10 @@ export default function Footer() {
               Mon to Fri from 9 a.m. to 6 p.m. PKT
             </p>
             <a
-              href="tel:+923164466335"
+              href="tel:+923203817767"
               className="text-[13.5px] font-semibold text-[var(--fm-text-primary)]/85 hover:text-[var(--fm-text-primary)]"
             >
-              +92 316 4466335 <span>🇵🇰</span>
+              +92 320 3817767 <span>🇵🇰</span>
             </a>
             <a
               href="tel:+13074436354"
@@ -142,10 +142,10 @@ export default function Footer() {
               +1 307 4436354 <span>🇺🇸</span>
             </a>
             <a
-              href="mailto:support@audvertax.pk"
+              href="mailto:info@audvertax.com"
               className="text-[13.5px] font-semibold text-[var(--fm-text-primary)]/85 hover:text-[var(--fm-text-primary)]"
             >
-              support@audvertax.pk
+              info@audvertax.com
             </a>
             <address className="text-[12.5px] not-italic leading-relaxed text-[var(--fm-text-tertiary)]">
               <span>Office No. 3, 2nd Floor, 29, HBL Plaza</span>

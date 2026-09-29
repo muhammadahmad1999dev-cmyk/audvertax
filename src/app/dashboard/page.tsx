@@ -384,19 +384,19 @@ function DashboardPageContent() {
                 WhatsApp
               </span>
               <span className="block font-mono text-[10px] text-[var(--fm-text-tertiary)]">
-                +92 316 4466335
+                +92 320 3817767
               </span>
             </span>
           </a>
           <a
-            href="mailto:support@audvertax.pk"
+            href="mailto:info@audvertax.com"
             className="flex items-center gap-3 rounded-[var(--fm-radius-md)] border border-[var(--fm-border-soft)] bg-[var(--fm-surface)] px-3 py-2.5"
           >
             <Mail size={18} className="text-[var(--fm-text-secondary)]" />
             <span>
               <span className="block text-xs font-medium">Email Support</span>
               <span className="block font-mono text-[10px] text-[var(--fm-text-tertiary)]">
-                support@audvertax.pk
+                info@audvertax.com
               </span>
             </span>
           </a>
@@ -948,7 +948,7 @@ function DashboardSupport({ faqOpen, setFaqOpen }: any) {
           icon={Mail}
           title="Email Support"
           text="Send us your question and our team can review it."
-          href="mailto:support@audvertax.pk"
+          href="mailto:info@audvertax.com"
         />
       </div>
       <DashboardPanel
