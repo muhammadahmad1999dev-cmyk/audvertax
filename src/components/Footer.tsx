@@ -135,12 +135,12 @@ export default function Footer() {
             >
               +92 320 3817767 <span>🇵🇰</span>
             </a>
-            <a
+            {/* <a
               href="tel:+13074436354"
               className="text-[13.5px] font-semibold text-[var(--fm-text-primary)]/85 hover:text-[var(--fm-text-primary)]"
             >
               +1 307 4436354 <span>🇺🇸</span>
-            </a>
+            </a> */}
             <a
               href="mailto:info@audvertax.com"
               className="text-[13.5px] font-semibold text-[var(--fm-text-primary)]/85 hover:text-[var(--fm-text-primary)]"
