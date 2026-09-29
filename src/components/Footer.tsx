@@ -148,11 +148,11 @@ export default function Footer() {
               info@audvertax.com
             </a>
             <address className="text-[12.5px] not-italic leading-relaxed text-[var(--fm-text-tertiary)]">
-              <span>Office No. 3, 2nd Floor, 29, HBL Plaza</span>
-              <br />
+              <span>Karachi, Lahore.</span>
+              {/* <br />
               <span>Central Block, Central District</span>
               <br />
-              <span>Bahria Orchard, Lahore, 55150</span>
+              <span>Bahria Orchard, Lahore, 55150</span> */}
             </address>
             <div className="my-1 h-px w-full bg-[var(--fm-border)]" />
           </div>
